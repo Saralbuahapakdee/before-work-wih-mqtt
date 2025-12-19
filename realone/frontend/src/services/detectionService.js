@@ -11,6 +11,8 @@ class DetectionService {
     this.pollInterval = null
     this.lastCheckTime = 'Never'
     this.isConnected = false
+    this.token = null
+    this.lastTimestamp = null
   }
 
   // Reset all state - IMPORTANT for logout/login
@@ -25,6 +27,8 @@ class DetectionService {
     this.detectionHistory = []
     this.lastCheckTime = 'Never'
     this.isConnected = false
+    this.token = null
+    this.lastTimestamp = null
     console.log('🔄 Detection service reset')
   }
 
@@ -59,10 +63,11 @@ class DetectionService {
     console.log('🛑 Detection service stopped')
   }
 
-  // Check for new detections
+  // Check for new detections from AI service
   async checkDetection() {
     try {
-      const response = await fetch('http://localhost:6001/detection', {
+      // Call the new detection-status endpoint (public, no auth needed)
+      const response = await fetch('/api/detection-status', {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json'
@@ -77,10 +82,14 @@ class DetectionService {
         // Check if this is a new detection
         const hasObjects = data.objects && Object.keys(data.objects).length > 0
         const isNewDetection = data.detected && hasObjects && 
-                               data.timestamp !== this.currentDetection.timestamp
+                               data.timestamp && 
+                               data.timestamp !== this.lastTimestamp
         
         if (isNewDetection) {
           console.log('🚨 NEW DETECTION:', data)
+          
+          // Update last timestamp
+          this.lastTimestamp = data.timestamp
           
           // Add to history
           this.detectionHistory.unshift({
@@ -101,7 +110,7 @@ class DetectionService {
           this.showNotification(data)
           
           // Auto-log detection to backend
-          this.logDetectionToBackend(data)
+          await this.logDetectionToBackend(data)
         }
         
         // Update current detection
@@ -122,7 +131,10 @@ class DetectionService {
 
   // Log detection to backend
   async logDetectionToBackend(detection) {
-    if (!this.token) return
+    if (!this.token) {
+      console.log('⚠️ No token available for logging detection')
+      return
+    }
     
     try {
       // Log each detected weapon
@@ -136,21 +148,34 @@ class DetectionService {
           // Normalize weapon type
           const normalizedType = this.normalizeWeaponType(weaponType)
           
+          console.log(`📝 Logging detection: ${normalizedType} (${(avgConfidence * 100).toFixed(1)}% confidence)`)
+          
           // Log to backend
-          await fetch('/api/log-detection', {
+          const response = await fetch('/api/log-detection', {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
               'Authorization': `Bearer ${this.token}`
             },
             body: JSON.stringify({
-              camera_id: 1, // Default camera, you can make this dynamic
+              camera_id: 1, // Default camera
               weapon_type: normalizedType,
               confidence_score: avgConfidence
             })
           })
           
-          console.log(`✓ Logged ${normalizedType} detection (${(avgConfidence * 100).toFixed(1)}% confidence)`)
+          if (response.ok) {
+            const result = await response.json()
+            console.log(`✅ Logged ${normalizedType} detection:`, result.message)
+            
+            // If incident was created, log it
+            if (result.incident_id) {
+              console.log(`🚨 Incident #${result.incident_id} created automatically`)
+            }
+          } else {
+            const error = await response.json()
+            console.error(`❌ Failed to log detection:`, error)
+          }
         }
       }
     } catch (error) {
