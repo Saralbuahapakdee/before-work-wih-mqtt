@@ -46,7 +46,7 @@
       </div>
     </div>
 
-    <!-- Main App (Logged In) - CRITICAL FIX: Use :key to force complete remount -->
+    <!-- Main App (Logged In) -->
     <MainApp 
       v-if="token"
       :key="appKey"
@@ -55,15 +55,15 @@
       @logout="handleLogout"
     />
 
-    <!-- Global Detection Alert Banner -->
+    <!-- Global Detection Alert Banner - FIXED TEXT -->
     <div v-if="token && currentDetection.detected && hasObjects" class="global-alert-banner">
       <div class="alert-content">
         <div class="alert-icon">🚨</div>
         <div class="alert-info">
           <strong>WEAPON DETECTED!</strong>
           <span>
-            <span v-for="(data, weaponType) in currentDetection.objects" :key="weaponType">
-              {{ formatWeaponName(weaponType) }} ({{ data.count }})
+            <span v-for="(data, weaponType, index) in currentDetection.objects" :key="weaponType">
+              {{ formatWeaponName(weaponType) }} ({{ data.count }}){{ index < Object.keys(currentDetection.objects).length - 1 ? ', ' : '' }}
             </span>
           </span>
         </div>
@@ -86,7 +86,6 @@ const userData = ref({
   userId: null
 })
 
-// CRITICAL FIX: App key that changes on every login to force complete remount
 const appKey = ref(0)
 
 const isLoading = ref(false)
@@ -120,7 +119,6 @@ onMounted(() => {
       userId: parseInt(localStorage.getItem('userId')) || null
     }
     
-    // Increment app key to force fresh mount
     appKey.value++
     
     startDetectionService()
@@ -196,7 +194,6 @@ async function login() {
       
       loginData.value = { username: '', password: '' }
       
-      // CRITICAL FIX: Increment app key to force complete remount of MainApp
       appKey.value++
       console.log('🔄 App key incremented to:', appKey.value)
       
@@ -215,29 +212,23 @@ async function login() {
 function handleLogout() {
   console.log('🔓 LOGOUT - Starting cleanup...')
   
-  // STEP 1: Stop all services
   stopDetectionService()
   detectionService.reset()
   
-  // STEP 2: Clear ALL state
   token.value = ''
   userData.value = { username: '', fullName: '', role: '', userId: null }
   currentDetection.value = { detected: false, objects: {}, timestamp: null }
   
-  // STEP 3: Clear localStorage
   localStorage.removeItem('authToken')
   localStorage.removeItem('currentUsername')
   localStorage.removeItem('userFullName')
   localStorage.removeItem('userRole')
   localStorage.removeItem('userId')
   
-  // STEP 4: Increment app key (even though MainApp is now hidden)
   appKey.value++
   
   console.log('✅ LOGOUT complete - all state cleared, app key:', appKey.value)
   
-  // CRITICAL FIX: Force page reload to clear ALL component state
-  // This is the nuclear option but guarantees clean state
   setTimeout(() => {
     console.log('🔄 Reloading page to ensure clean state...')
     window.location.reload()
@@ -246,7 +237,7 @@ function handleLogout() {
 
 function formatWeaponName(weaponType) {
   const names = {
-    'gun': 'Gun/Pistol',
+    'gun': 'Pistol',
     'heavy-weapon': 'Heavy Weapon',
     'heavy_weapon': 'Heavy Weapon',
     'knife': 'Knife',
@@ -409,7 +400,7 @@ body {
 
 .global-alert-banner {
   position: fixed;
-  top: 20px;
+  bottom: 20px;
   left: 50%;
   transform: translateX(-50%);
   z-index: 9999;
@@ -420,13 +411,13 @@ body {
   padding: 15px 20px;
   border-radius: 12px;
   box-shadow: 0 8px 24px rgba(231, 76, 60, 0.4);
-  animation: slideDown 0.3s ease-out, pulse 2s ease-in-out infinite;
+  animation: slideUp 0.3s ease-out, pulse 2s ease-in-out infinite;
 }
 
-@keyframes slideDown {
+@keyframes slideUp {
   from {
     opacity: 0;
-    transform: translateX(-50%) translateY(-20px);
+    transform: translateX(-50%) translateY(20px);
   }
   to {
     opacity: 1;
@@ -499,7 +490,7 @@ body {
   
   .global-alert-banner {
     min-width: 90vw;
-    top: 10px;
+    bottom: 10px;
   }
   
   .alert-content {

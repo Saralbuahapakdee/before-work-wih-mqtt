@@ -14,18 +14,6 @@
       </div>
     </div>
 
-    <!-- Alert Banner for New Detections -->
-    <div v-if="latestIncident" class="alert-banner">
-      <div class="alert-content">
-        <div class="alert-icon">🚨</div>
-        <div class="alert-info">
-          <strong>WEAPON DETECTED!</strong>
-          <span>{{ formatWeaponName(latestIncident.weapon_type) }} at {{ latestIncident.camera_name }}</span>
-        </div>
-        <button @click="dismissAlert" class="alert-dismiss">✕</button>
-      </div>
-    </div>
-
     <!-- Camera Grid -->
     <div :class="['camera-grid', `grid-${gridSize}`, { 'full-view': isFullView }]" ref="gridContainer">
       <div v-for="camera in displayedCameras" :key="camera.id" 
@@ -62,12 +50,10 @@ const incidents = ref([])
 const gridSize = ref('2x2')
 const focusedCamera = ref(null)
 const isFullView = ref(false)
-const latestIncident = ref(null)
 const isFullscreen = ref(false)
 const gridContainer = ref(null)
 const lastIncidentId = ref(null)
 
-// CRITICAL FIX: Store interval ID at component level
 let refreshIntervalId = null
 let notificationPermission = 'default'
 
@@ -95,16 +81,13 @@ onMounted(async () => {
   await loadCameras()
   await loadIncidents()
   
-  // Request notification permission
   if ('Notification' in window) {
     notificationPermission = await Notification.requestPermission()
   }
   
-  // CRITICAL: Start interval and store its ID
   startPolling()
 })
 
-// CRITICAL FIX: Use BOTH onBeforeUnmount and onUnmounted to ensure cleanup
 onBeforeUnmount(() => {
   console.log('📹 MultiCameraTab BEFORE UNMOUNT - stopping polling')
   stopPolling()
@@ -114,16 +97,12 @@ onUnmounted(() => {
   console.log('📹 MultiCameraTab UNMOUNTED - final cleanup')
   stopPolling()
   
-  // Extra safety: reset all refs
   cameras.value = []
   incidents.value = []
-  latestIncident.value = null
   lastIncidentId.value = null
 })
 
-// CRITICAL FIX: Separate function to start polling
 function startPolling() {
-  // Safety: clear any existing interval first
   stopPolling()
   
   console.log('🔄 Starting incident polling...')
@@ -137,7 +116,6 @@ function startPolling() {
   console.log('✅ Polling started with interval ID:', refreshIntervalId)
 }
 
-// CRITICAL FIX: Separate function to stop polling
 function stopPolling() {
   if (refreshIntervalId !== null) {
     console.log('🛑 STOPPING interval ID:', refreshIntervalId)
@@ -183,7 +161,7 @@ function checkForNewIncidents() {
   
   const newest = incidents.value[0]
   
-  // Check if this is a new incident
+  // Check if this is a new incident (ONLY FROM REAL MQTT DATA)
   if (lastIncidentId.value !== newest.id) {
     lastIncidentId.value = newest.id
     
@@ -192,27 +170,11 @@ function checkForNewIncidents() {
       showAlert(newest)
       playAlertSound()
       showBrowserNotification(newest)
-      sendEmailNotification(newest)
       
       // Auto-focus camera
       focusCamera(newest.camera_id)
     }
   }
-}
-
-function showAlert(incident) {
-  latestIncident.value = incident
-  
-  // Auto-dismiss after 15 seconds
-  setTimeout(() => {
-    if (latestIncident.value?.id === incident.id) {
-      latestIncident.value = null
-    }
-  }, 15000)
-}
-
-function dismissAlert() {
-  latestIncident.value = null
 }
 
 function playAlertSound() {
@@ -254,27 +216,6 @@ function showBrowserNotification(incident) {
       tag: 'weapon-detection',
       requireInteraction: true
     })
-  }
-}
-
-async function sendEmailNotification(incident) {
-  try {
-    await fetch('/api/send-alert-email', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${props.token}`
-      },
-      body: JSON.stringify({
-        incident_id: incident.id,
-        weapon_type: incident.weapon_type,
-        camera_name: incident.camera_name,
-        location: incident.camera_location,
-        detected_at: incident.detected_at
-      })
-    })
-  } catch (error) {
-    console.error('Could not send email:', error)
   }
 }
 
@@ -368,55 +309,15 @@ function formatWeaponName(weaponType) {
   transform: translateX(-2px);
 }
 
-.alert-banner {
-  background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
-  color: white;
-  padding: 15px 20px;
-  border-radius: 12px;
-  box-shadow: 0 4px 12px rgba(231, 76, 60, 0.3);
-  animation: pulse 2s ease-in-out infinite;
-}
-
 @keyframes pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.9; }
-}
-
-.alert-content {
-  display: flex;
-  align-items: center;
-  gap: 15px;
-}
-
-.alert-icon {
-  font-size: 2rem;
-  animation: shake 0.5s ease-in-out infinite;
 }
 
 @keyframes shake {
   0%, 100% { transform: translateX(0); }
   25% { transform: translateX(-5px); }
   75% { transform: translateX(5px); }
-}
-
-.alert-info {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-}
-
-.alert-info strong {
-  font-size: 1.1rem;
-}
-
-.alert-dismiss {
-  background: none;
-  border: none;
-  color: white;
-  font-size: 1.5rem;
-  cursor: pointer;
-  padding: 5px 10px;
 }
 
 .camera-grid {

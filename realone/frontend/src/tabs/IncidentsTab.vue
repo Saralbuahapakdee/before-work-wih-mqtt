@@ -17,6 +17,45 @@
           </option>
         </select>
         
+        <!-- Date Range Type Selector -->
+        <select v-model="dateRangeType" @change="handleDateRangeChange" class="filter-select">
+          <option value="preset">Quick Select</option>
+          <option value="custom">Custom Range</option>
+        </select>
+
+        <!-- Quick Presets -->
+        <select v-if="dateRangeType === 'preset'" v-model="filterDays" @change="loadIncidents" class="filter-select">
+          <option :value="1">Today</option>
+          <option :value="7">Last 7 days</option>
+          <option :value="14">Last 2 weeks</option>
+          <option :value="30">Last 30 days</option>
+          <option :value="60">Last 2 months</option>
+          <option :value="90">Last 3 months</option>
+          <option :value="180">Last 6 months</option>
+          <option :value="365">Last year</option>
+        </select>
+
+        <!-- Custom Date Range -->
+        <template v-if="dateRangeType === 'custom'">
+          <input 
+            type="date" 
+            v-model="startDate" 
+            @change="loadIncidents"
+            :max="endDate"
+            class="date-input"
+            title="Start Date"
+          />
+          <input 
+            type="date" 
+            v-model="endDate" 
+            @change="loadIncidents"
+            :min="startDate"
+            :max="today"
+            class="date-input"
+            title="End Date"
+          />
+        </template>
+        
         <button @click="loadIncidents" class="refresh-btn">🔄 Refresh</button>
       </div>
     </div>
@@ -53,14 +92,19 @@
       </div>
     </div>
 
+    <!-- Date Range Display -->
+    <div class="date-range-display">
+      <strong>📅 Period:</strong> {{ dateRangeDisplay }}
+    </div>
+
     <!-- Incidents List -->
     <div class="incidents-list">
       <div v-if="isLoading" class="loading">Loading incidents...</div>
-      <div v-else-if="incidents.length === 0" class="no-incidents">
-        No incidents found
+      <div v-else-if="filteredIncidents.length === 0" class="no-incidents">
+        No incidents found for selected filters
       </div>
       <div v-else class="incident-cards">
-        <div v-for="incident in incidents" :key="incident.id" 
+        <div v-for="incident in filteredIncidents" :key="incident.id" 
              :class="['incident-card', incident.status]"
              @click="selectIncident(incident)">
           <div class="incident-header-row">
@@ -221,7 +265,20 @@ const officers = ref([])
 const selectedIncident = ref(null)
 const filterStatus = ref('')
 const filterOfficer = ref('')
+const dateRangeType = ref('preset')
+const filterDays = ref(7)
 const isLoading = ref(false)
+
+// Date range
+const today = new Date().toISOString().split('T')[0]
+const startDate = ref(getDateDaysAgo(7))
+const endDate = ref(today)
+
+function getDateDaysAgo(days) {
+  const date = new Date()
+  date.setDate(date.getDate() - days)
+  return date.toISOString().split('T')[0]
+}
 
 const actionData = ref({
   assigned_to: '',
@@ -229,12 +286,52 @@ const actionData = ref({
   resolution_notes: ''
 })
 
+const dateRangeDisplay = computed(() => {
+  if (dateRangeType.value === 'preset') {
+    if (filterDays.value === 1) return 'Today'
+    if (filterDays.value === 7) return 'Last 7 days'
+    if (filterDays.value === 30) return 'Last 30 days'
+    return `Last ${filterDays.value} days`
+  } else {
+    return `${formatDate(startDate.value)} - ${formatDate(endDate.value)}`
+  }
+})
+
+const filteredIncidents = computed(() => {
+  let filtered = [...incidents.value]
+  
+  // Filter by date range
+  if (dateRangeType.value === 'custom') {
+    const start = new Date(startDate.value)
+    start.setHours(0, 0, 0, 0)
+    const end = new Date(endDate.value)
+    end.setHours(23, 59, 59, 999)
+    
+    filtered = filtered.filter(incident => {
+      const incidentDate = new Date(incident.detected_at)
+      return incidentDate >= start && incidentDate <= end
+    })
+  } else {
+    // Preset date filter
+    const cutoffDate = new Date()
+    cutoffDate.setDate(cutoffDate.getDate() - filterDays.value)
+    cutoffDate.setHours(0, 0, 0, 0)
+    
+    filtered = filtered.filter(incident => {
+      const incidentDate = new Date(incident.detected_at)
+      return incidentDate >= cutoffDate
+    })
+  }
+  
+  return filtered
+})
+
 const stats = computed(() => {
   return {
-    pending: incidents.value.filter(i => i.status === 'pending').length,
-    responding: incidents.value.filter(i => i.status === 'responding').length,
-    resolved: incidents.value.filter(i => i.status === 'resolved').length,
-    total: incidents.value.length
+    pending: filteredIncidents.value.filter(i => i.status === 'pending').length,
+    responding: filteredIncidents.value.filter(i => i.status === 'responding').length,
+    resolved: filteredIncidents.value.filter(i => i.status === 'resolved').length,
+    total: filteredIncidents.value.length
   }
 })
 
@@ -245,6 +342,15 @@ onMounted(async () => {
   // Auto-refresh every 30 seconds
   setInterval(loadIncidents, 30000)
 })
+
+function handleDateRangeChange() {
+  if (dateRangeType.value === 'preset') {
+    filterDays.value = 7
+  } else {
+    startDate.value = getDateDaysAgo(7)
+    endDate.value = today
+  }
+}
 
 async function loadOfficers() {
   if (props.userData.role !== 'admin') return
@@ -267,7 +373,7 @@ async function loadIncidents() {
   isLoading.value = true
   
   try {
-    let url = '/api/incidents?limit=100'
+    let url = '/api/incidents?limit=1000'
     if (filterStatus.value) url += `&status=${filterStatus.value}`
     if (filterOfficer.value) url += `&assigned_to=${filterOfficer.value}`
     
@@ -373,6 +479,15 @@ function formatDateTime(dateTimeString) {
     return dateTimeString
   }
 }
+
+function formatDate(dateString) {
+  if (!dateString) return 'N/A'
+  try {
+    return new Date(dateString).toLocaleDateString()
+  } catch {
+    return dateString
+  }
+}
 </script>
 
 <style scoped>
@@ -405,12 +520,17 @@ function formatDateTime(dateTimeString) {
   flex-wrap: wrap;
 }
 
-.filter-select {
+.filter-select,
+.date-input {
   padding: 8px 12px;
   border: 1px solid #ddd;
   border-radius: 6px;
   background: white;
   cursor: pointer;
+}
+
+.date-input {
+  min-width: 140px;
 }
 
 .refresh-btn {
@@ -425,6 +545,15 @@ function formatDateTime(dateTimeString) {
 
 .refresh-btn:hover {
   background: #357ab7;
+}
+
+.date-range-display {
+  background: #e8f4fd;
+  padding: 15px 20px;
+  border-radius: 8px;
+  color: #2c3e50;
+  font-size: 1.1rem;
+  border-left: 4px solid #4a90e2;
 }
 
 .stats-row {
@@ -788,6 +917,7 @@ function formatDateTime(dateTimeString) {
   }
   
   .filter-select,
+  .date-input,
   .refresh-btn {
     width: 100%;
   }
